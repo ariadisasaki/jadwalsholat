@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jadwal Sholat</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2E7D32">
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body { margin:0; font-family:sans-serif; transition:0.5s; }
+header { display:flex; align-items:center; justify-content:center; padding:10px; background:#2E7D32; color:white; font-size:1.5em;}
+header img{ width:30px; margin-right:10px; }
+#datetime{text-align:center;margin-top:10px;font-size:1.2em;}
+#jadwal{display:flex;flex-direction:column;align-items:center;margin-top:20px;}
+.sholat{display:flex;justify-content:space-between;width:80%;max-width:400px;padding:10px;border-radius:8px;margin:5px;color:white;transition: transform 0.3s;cursor:pointer;}
+.sholat.active{transform:scale(1.05);opacity:1;}
+#countdown{text-align:center;margin-top:10px;font-size:1.2em;font-weight:bold;}
+#coords,#distance{text-align:center;font-size:0.9em;margin-top:5px;padding:5px 10px;border-radius:5px;background:#C8E6C9;}
+.map-wrapper{position:relative;height:300px;margin:15px;}
+#map{width:100%;height:100%;border-radius:10px;}
+.map-toggle{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);border-radius:25px;padding:5px;display:flex;gap:5px;z-index:999;}
+.map-toggle button{border:none;padding:6px 12px;border-radius:20px;cursor:pointer;background:transparent;color:white;font-size:12px;transition:.3s;}
+.map-toggle button.active-map{background:#00ffd5;color:black;}
+#settings{text-align:center;margin-top:15px;}
+button{margin:5px;padding:8px 15px;border:none;border-radius:5px;cursor:pointer;background:#66BB6A;color:white;font-weight:bold;transition:0.3s;}
+button:hover{background:#43A047;}
+footer{text-align:center;margin:15px;color:#555;}
+</style>
+</head>
+<body>
+
+<header>
+  <img src="assets/mosque.png" alt="Masjid"> Jadwal Sholat
+</header>
+
+<div id="datetime">Hari, Tanggal, Waktu</div>
+
+<div id="jadwal">
+  <div class="sholat" id="Subuh"><span>Subuh</span><span>--:--:--</span></div>
+  <div class="sholat" id="Dzuhur"><span>Dzuhur</span><span>--:--:--</span></div>
+  <div class="sholat" id="Ashar"><span>Ashar</span><span>--:--:--</span></div>
+  <div class="sholat" id="Maghrib"><span>Maghrib</span><span>--:--:--</span></div>
+  <div class="sholat" id="Isya"><span>Isya</span><span>--:--:--</span></div>
+</div>
+
+<div id="countdown">--:--:--</div>
+<div id="coords">Koordinat : -,-<br>Ketinggian : - mdpl</div>
+<div id="distance">Jarak ke Ka'bah: -- km</div>
+
+<div class="map-wrapper">
+  <div id="map"></div>
+  <div class="map-toggle">
+    <button id="btnOSM" class="active-map">OSM</button>
+    <button id="btnSAT">Satelit</button>
+  </div>
+</div>
+
+<div id="settings">
+  <button id="themeBtn">Mode Gelap/Terang</button>
+</div>
+
+<audio id="audioSubuh" src="assets/adzan_subuh.mp3"></audio>
+<audio id="audioNormal" src="assets/adzan_normal.mp3"></audio>
+
+<footer>
+Developed by <a href="https://www.facebook.com/share/1C8bjd7Xoh" target="_blank">Ariadi Forester</a>
+</footer>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Gunakan API Jadwal Sholat Nasional (contoh: https://api.banghasan.com/sholat/format/json) -->
+<script>
+let lat=-6.2, lon=106.8, alt=0;
+let map, osmLayer, satLayer, userMarker, kiblatLine;
+const audioSubuh=document.getElementById("audioSubuh");
+const audioNormal=document.getElementById("audioNormal");
+
+// ===== GPS =====
+function updateGPS(pos){
+  lat=pos.coords.latitude;
+  lon=pos.coords.longitude;
+  alt=pos.coords.altitude||0;
+  document.getElementById("coords").innerHTML=
+    `Koordinat :<br>${lat.toFixed(5)},${lon.toFixed(5)}<br>Ketinggian : ${alt.toFixed(1)} mdpl`;
+  updateDistanceToKaaba(lat,lon);
+}
+if(navigator.geolocation) navigator.geolocation.watchPosition(updateGPS);
+
+// ===== Date & Time =====
+function updateDateTime(){
+  const now=new Date();
+  const days=["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
+  const day=days[now.getDay()];
+  const date=`${now.getDate().toString().padStart(2,'0')}-${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getFullYear()}`;
+  const time=`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  document.getElementById("datetime").innerHTML=`${day}, ${date}<br>Pkl. ${time}`;
+}
+setInterval(updateDateTime,1000);
+
+// ===== Peta =====
+function initMap(){
+  map=L.map('map',{zoomAnimation:true,fadeAnimation:true}).setView([lat,lon],13);
+  osmLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+  satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri'});
+  userMarker=L.marker([lat,lon]).addTo(map);
+  drawQibla(lat,lon);
+  autoMapMode();
+}
+document.getElementById("btnOSM").onclick=()=>{map.removeLayer(satLayer); osmLayer.addTo(map); btnOSM.classList.add("active-map"); btnSAT.classList.remove("active-map");};
+document.getElementById("btnSAT").onclick=()=>{map.removeLayer(osmLayer); satLayer.addTo(map); btnSAT.classList.add("active-map"); btnOSM.classList.remove("active-map");};
+function autoMapMode(){ const hour=new Date().getHours(); if(hour>=18||hour<=5){map.removeLayer(osmLayer); satLayer.addTo(map); btnSAT.classList.add("active-map"); btnOSM.classList.remove("active-map");}}
+
+// ===== Garis Kiblat =====
+function drawQibla(lat,lon){
+  const kaabaLat=21.4225, kaabaLon=39.8262;
+  const φ1 = lat*Math.PI/180, φ2 = kaabaLat*Math.PI/180;
+  const Δλ = (kaabaLon-lon)*Math.PI/180;
+  const y=Math.sin(Δλ)*Math.cos(φ2);
+  const x=Math.cos(φ1)*Math.sin(φ2)-Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+  const bearing=(Math.atan2(y,x)*180/Math.PI+360)%360;
+  const distance=1;
+  const endLat=lat+distance*Math.cos(bearing*Math.PI/180)/111;
+  const endLon=lon+distance*Math.sin(bearing*Math.PI/180)/111;
+  if(kiblatLine) map.removeLayer(kiblatLine);
+  kiblatLine=L.polyline([[lat,lon],[endLat,endLon]],{color:'yellow',weight:4}).addTo(map);
+}
+
+// ===== Jarak Ka'bah =====
+function updateDistanceToKaaba(lat,lon){
+  const kaabaLat=21.4225, kaabaLon=39.8262;
+  const R=6371;
+  const dLat=(kaabaLat-lat)*Math.PI/180;
+  const dLon=(kaabaLon-lon)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat*Math.PI/180)*Math.cos(kaabaLat*Math.PI/180)*Math.sin(dLon/2)**2;
+  const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  const distance=R*c;
+  document.getElementById("distance").innerText=`Jarak ke Ka'bah: ${distance.toFixed(2)} km`;
+}
+
+// ===== Jadwal Sholat via API =====
+async function fetchJadwal(){
+  try{
+    const res=await fetch(`https://api.banghasan.com/sholat/format/json/jadwal/kota/667?bulan=${new Date().getMonth()+1}&tahun=${new Date().getFullYear()}`);
+    const data=await res.json();
+    const today=new Date().getDate();
+    const jadwalToday=data.jadwal.data[today-1];
+    const times={
+      Subuh:jadwalToday.subuh,
+      Dzuhur:jadwalToday.dzuhur,
+      Ashar:jadwalToday.ashar,
+      Maghrib:jadwalToday.maghrib,
+      Isya:jadwalToday.isya
+    };
+    for(const key in times){
+      document.querySelector(`#${key} span:nth-child(2)`).innerText=times[key];
+      document.getElementById(key).style.background=getGradient(key);
+      document.getElementById(key).classList.remove("active");
+    }
+    updateCountdown(times);
+  }catch(err){console.error(err);}
+}
+function updateCountdown(times){
+  const now=new Date();
+  const prayerOrder=["Subuh","Dzuhur","Ashar","Maghrib","Isya"];
+  let nextPrayer=null,nextId=null;
+  for(const p of prayerOrder){
+    const [h,m]=times[p].split(":").map(Number);
+    const t=new Date();
+    t.setHours(h,m,0,0);
+    if(t>now){nextPrayer=t; nextId=p; break;}
+  }
+  if(nextId){
+    document.getElementById(nextId).classList.add("active");
+    let diff=(nextPrayer-now)/1000;
+    const hrs=Math.floor(diff/3600), mins=Math.floor(diff%3600/60), secs=Math.floor(diff%60);
+    document.getElementById("countdown").innerText=`${nextId} ${("0"+hrs).slice(-2)}:${("0"+mins).slice(-2)}:${("0"+secs).slice(-2)}`;
+    if(diff<1) playAdzan(nextId);
+  }
+  setTimeout(fetchJadwal,1000);
+}
+function playAdzan(sholat){
+  if(sholat==="Subuh") audioSubuh.play();
+  else audioNormal.play();
+  if(navigator.vibrate) navigator.vibrate(1000);
+}
+
+function getGradient(id){
+  const colors={
+    "Subuh":"linear-gradient(90deg,#81D4FA,#0288D1)",
+    "Dzuhur":"linear-gradient(90deg,#A5D6A7,#2E7D32)",
+    "Ashar":"linear-gradient(90deg,#FFCC80,#F57C00)",
+    "Maghrib":"linear-gradient(90deg,#FF8A65,#D84315)",
+    "Isya":"linear-gradient(90deg,#CE93D8,#6A1B9A)"
+  };
+  return colors[id]||"#ccc";
+}
+
+// ===== Theme Toggle =====
+document.getElementById("themeBtn").onclick=()=>{
+  if(document.body.style.background==="") document.body.style.background="#1B1B1B",document.body.style.color="#A5D6A7";
+  else document.body.style.background="",document.body.style.color="#1B5E20";
+};
+
+// ===== Service Worker PWA =====
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('service-worker.js').then(()=>console.log('SW registered'));
+}
+
+// ===== Init =====
+window.onload=()=>{
+  initMap();
+  fetchJadwal();
+};
+</script>
+
+</body>
+</html>
