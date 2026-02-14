@@ -1,0 +1,43 @@
+body{
+  font-family: Arial, sans-serif;
+  text-align:center;
+  padding:15px;
+  margin:0;
+}
+
+#map{
+  height:250px;
+  margin-top:10px;
+  border-radius:10px;
+}
+
+#tanggal{
+  font-weight:bold;
+  margin-bottom:8px;
+}
+
+#countdown{
+  font-size:18px;
+  margin-bottom:8px;
+}
+
+#jarakKabah{
+  margin-bottom:10px;
+  font-weight:bold;
+}
+
+button{
+  padding:10px 15px;
+  margin-top:10px;
+  border:none;
+  border-radius:6px;
+  background:#1e88e5;
+  color:white;
+  cursor:pointer;
+}
+
+footer{
+  margin-top:15px;
+  font-size:12px;
+  opacity:0.8;
+}
